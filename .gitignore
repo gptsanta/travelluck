@@ -1,0 +1,11 @@
+# игнорировать виртуальное окружение
+venv/
+.env
+__pycache__/
+*.pyc
+
+# ключи и настройки
+config.py
+service_account.json
+*.json
+

@@ -1,0 +1,7 @@
+python-telegram-bot==21.9
+openai>=1.40.0
+python-dotenv>=1.0.1
+gspread>=6.1.4
+google-auth>=2.31.0
+python-dotenv
+
