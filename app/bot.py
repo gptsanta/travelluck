@@ -1,3 +1,4 @@
+# app/bot.py
 import asyncio
 from datetime import datetime, timezone
 from telegram.ext import (
@@ -7,6 +8,10 @@ from telegram import Update
 from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
 import re
+from dotenv import load_dotenv
+
+# Загружаем переменные окружения сразу, чтобы они были доступны всем модулям
+load_dotenv()
 
 from .config import TELEGRAM_TOKEN, ADMIN_ID
 from .generate import generate_post, generate_image
