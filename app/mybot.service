@@ -1,0 +1,14 @@
+[Unit]
+Description=Telegram Bot Travel Luck
+After=network.target
+
+[Service]
+User=root
+WorkingDirectory=/root/projects/travelluck
+EnvironmentFile=/root/projects/travelluck/.env
+ExecStart=/root/projects/travelluck/venv/bin/python3 -m app.bot
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
