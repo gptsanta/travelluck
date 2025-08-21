@@ -29,7 +29,7 @@
 ## Структура проекта
 
 ```text
-telegram_travel_bot/
+travelluck/
 ├── app/
 │   ├── __init__.py
 │   ├── bot.py         # основной код Telegram-бота
