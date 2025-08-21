@@ -1,7 +1,4 @@
 import gspread
-from datetime import datetime, timezone
-import json
-import re
 from .config import GOOGLE_SHEETS_SPREADSHEET_ID, GOOGLE_SERVICE_ACCOUNT_JSON
 
 SHEET_NAME = "posts"
@@ -17,168 +14,165 @@ def _open_sheet(gc):
     sh = gc.open_by_key(GOOGLE_SHEETS_SPREADSHEET_ID)
     try:
         ws = sh.worksheet(SHEET_NAME)
-    except gspread.WorksheetNotFound:
-        ws = sh.add_worksheet(title=SHEET_NAME, rows=1000, cols=len(HEADERS))
-        ws.update("A1", [HEADERS])
-        return ws
-    _ensure_headers(ws)
+    except gspread.exceptions.WorksheetNotFound:
+        ws = sh.add_worksheet(title=SHEET_NAME, rows=100, cols=len(HEADERS))
+        ws.append_row(HEADERS)
     return ws
 
-def _ensure_headers(ws):
-    if ws.col_count < len(HEADERS):
-        ws.add_cols(len(HEADERS) - ws.col_count)
-    first_row = ws.row_values(1)
-    norm = lambda arr: [str(x).strip().lower() for x in arr]
-    if not first_row or norm(first_row[:len(HEADERS)]) != norm(HEADERS):
-        ws.update("A1", [HEADERS])
+def _ensure_header(ws):
+    current = ws.row_values(1)
+    if current != HEADERS:
+        if not current:
+            ws.update("A1", [HEADERS])
+        else:
+            ws.update(f"A1:{chr(64+len(HEADERS))}1", [HEADERS])
+
+def _pack_post_cell(title: str, text: str) -> str:
+    title = (title or "").strip()
+    text = (text or "").strip()
+    if title:
+        return f"**{title}**\n\n{text}"
+    return text
+
+def _parse_post_cell(cell: str) -> tuple[str, str]:
+    """Парсит '**Title**\\n\\nText' или просто 'Text'."""
+    cell = (cell or "").strip()
+    if not cell:
+        return "", ""
+    if cell.startswith("**"):
+        end = cell.find("**", 2)
+        if end != -1:
+            title = cell[2:end].strip()
+            rest = cell[end+2:]
+            if rest.startswith("\n\n"):
+                rest = rest[2:]
+            return title, (rest or "").strip()
+    return "", cell
 
 # -------------------- Добавление поста --------------------
-def append_post(row: dict) -> str:
+def append_post(row_dict: dict) -> dict:
     gc = _client()
     ws = _open_sheet(gc)
-    row_id = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S%f")
+    _ensure_header(ws)
 
-    def safe_str(value):
-        if isinstance(value, (dict, list)):
-            return json.dumps(value, ensure_ascii=False)
-        elif isinstance(value, str):
-            v = value.replace('"""', '“”').replace('"', '“')
-            v = re.sub(r'(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)', r'_\1_', v)
-            v = re.sub(r'(?<!\*)\*(?!\*)', '', v)
-            return v
-        return str(value)
-
-    title = (row.get("title") or "").strip()
-    text = (row.get("text") or "").strip()
-    combined_post = f"**{title}**\n\n{text}" if title else text
-
-    values = [
-        row_id,
-        safe_str(row.get("status", "draft")),
-        safe_str(combined_post),
-        safe_str(row.get("image_prompt", "")),
-        safe_str(row.get("image_url", "")),  # сохраняем URL изображения
-        safe_str(row.get("created_at", datetime.now(timezone.utc).isoformat())),
-        safe_str(row.get("scheduled_at", "")),
-        safe_str(row.get("posted_at", "")),
-        safe_str(row.get("chat_id", "")),
-        safe_str(row.get("message_id", "")),
-        ""
+    post_cell = _pack_post_cell(row_dict.get("title",""), row_dict.get("text",""))
+    row = [
+        row_dict.get("id",""),
+        row_dict.get("status","draft"),
+        post_cell,
+        row_dict.get("image_prompt",""),
+        row_dict.get("image_url",""),
+        row_dict.get("created_at",""),
+        row_dict.get("scheduled_at",""),
+        row_dict.get("posted_at",""),
+        row_dict.get("chat_id",""),
+        row_dict.get("message_id",""),
+        row_dict.get("error",""),
     ]
+    ws.append_row(row, value_input_option="RAW")
+    return {
+        "id": row[0],
+        "status": row[1],
+        "title": row_dict.get("title",""),
+        "text": row_dict.get("text",""),
+        "image_prompt": row[3],
+        "image_url": row[4],
+        "created_at": row[5]
+    }
 
-    try:
-        ws.append_row(values, value_input_option="RAW")
-        print(f"Пост с id {row_id} успешно добавлен.")
-    except Exception as e:
-        error_values = values[:-1] + [str(e)]
-        ws.append_row(error_values, value_input_option="RAW")
-        print(f"[Ошибка] Не удалось добавить пост с id {row_id}: {e}")
-
-    return row_id
-
-# -------------------- Получение поста по ID --------------------
+# -------------------- Получение по id --------------------
 def get_post_by_id(post_id: str) -> dict | None:
     gc = _client()
     ws = _open_sheet(gc)
     all_values = ws.get_all_values()
     for row in all_values[1:]:
-        if len(row) < 4:
+        if not row or len(row) < 3:
             continue
         if row[0] == post_id:
-            post_cell = row[2]  # **Title**\n\nText
-            title_match = re.match(r'\*\*(.*?)\*\*', post_cell)
-            title = title_match.group(1) if title_match else ""
-            text = post_cell.split("\n\n", 1)[1] if "\n\n" in post_cell else ""
+            title, text = _parse_post_cell(row[2])
             image_prompt = row[3] if len(row) > 3 else ""
             image_url = row[4] if len(row) > 4 else ""
-            return {"title": title, "text": text, "image_prompt": image_prompt, "image_url": image_url}
+            return {
+                "id": row[0],
+                "status": row[1],
+                "title": title,
+                "text": text,
+                "image_prompt": image_prompt,
+                "image_url": image_url,
+                "created_at": row[5] if len(row) > 5 else ""
+            }
     return None
 
-# -------------------- Обновление поста --------------------
-def update_post(post_id: str, new_title: str | None, new_text: str | None, new_prompt: str | None, new_image_url: str | None = None) -> bool:
+# -------------------- Последние N --------------------
+def list_recent_posts(limit: int = 10) -> list[dict]:
     gc = _client()
     ws = _open_sheet(gc)
-
-    def safe_str(value):
-        if not value:
-            return ""
-        v = value.replace('"""', '“”').replace('"', '“')
-        v = re.sub(r'(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)', r'_\1_', v)
-        v = re.sub(r'(?<!\*)\*(?!\*)', '', v)
-        return v.strip()
-
     all_values = ws.get_all_values()
-    for idx, row in enumerate(all_values[1:], start=2):
-        if len(row) == 0:
+    body = all_values[1:]
+    body = body[-limit:] if limit and len(body) > limit else body
+    out = []
+    for row in reversed(body):
+        if not row or len(row) < 3:
             continue
-        if row[0] == post_id:
-            post_cell = row[2]
-            title_match = re.match(r'\*\*(.*?)\*\*', post_cell)
-            old_title = title_match.group(1) if title_match else ""
-            old_text = post_cell.split("\n\n",1)[1] if "\n\n" in post_cell else ""
-
-            title_to_use = new_title if new_title is not None else old_title
-            text_to_use = new_text if new_text is not None else old_text
-            combined_post = f"**{title_to_use}**\n\n{text_to_use}" if title_to_use else text_to_use
-            ws.update_cell(idx, 3, safe_str(combined_post))
-
-            if new_prompt is not None:
-                ws.update_cell(idx, 4, safe_str(new_prompt))
-            if new_image_url is not None:
-                ws.update_cell(idx, 5, safe_str(new_image_url))
-            return True
-    return False
-
-def update_image_url(post_id: str, new_url: str) -> bool:
-    """Обновляет поле image_url для поста с указанным ID"""
-    gc = _client()
-    ws = _open_sheet(gc)
-    all_values = ws.get_all_values()
-
-    for idx, row in enumerate(all_values[1:], start=2):  # заголовок в строке 1
-        if row[0] == post_id:
-            ws.update_cell(idx, 5, new_url)  # колонка image_url
-            print(f"[update_image_url] Пост {post_id} обновлен с новым image_url")
-            return True
-    print(f"[update_image_url] Пост {post_id} не найден")
-    return False
-
-
-# -------------------- Получение всех постов --------------------
-def get_all_posts() -> list[dict]:
-    gc = _client()
-    ws = _open_sheet(gc)
-    all_values = ws.get_all_values()
-    posts = []
-    for row in all_values[1:]:
-        if len(row) < 3:
-            continue
-        posts.append({
+        title, text = _parse_post_cell(row[2])
+        out.append({
             "id": row[0],
             "status": row[1],
-            "post": row[2],
-            "image_prompt": row[3] if len(row)>3 else "",
-            "image_url": row[4] if len(row)>4 else "",
-            "created_at": row[5] if len(row)>5 else "",
-            "scheduled_at": row[6] if len(row)>6 else "",
-            "posted_at": row[7] if len(row)>7 else "",
-            "chat_id": row[8] if len(row)>8 else "",
-            "message_id": row[9] if len(row)>9 else "",
-            "error": row[10] if len(row)>10 else ""
+            "title": title,
+            "text": text,
+            "image_prompt": row[3] if len(row) > 3 else "",
+            "image_url": row[4] if len(row) > 4 else "",
+            "created_at": row[5] if len(row) > 5 else ""
         })
-    return posts
+    return out
 
-# -------------------- Удаление поста --------------------
+# -------------------- Обновление (для /edit) --------------------
+def update_post_fields(post_id: str, title: str | None = None, text: str | None = None, image_prompt: str | None = None) -> bool:
+    """
+    Обновляет title/text/image_prompt для строки с заданным id.
+    Если параметр = None — поле не меняется.
+    """
+    gc = _client()
+    ws = _open_sheet(gc)
+    all_values = ws.get_all_values()
+
+    # найдём строку и текущее состояние
+    target_idx = None  # индекс строки в таблице (1-based)
+    cur_title = ""
+    cur_text = ""
+    cur_image_prompt = ""
+
+    for idx, row in enumerate(all_values[1:], start=2):  # с учётом заголовка
+        if not row:
+            continue
+        if row[0] == post_id:
+            target_idx = idx
+            pt, tx = _parse_post_cell(row[2] if len(row) > 2 else "")
+            cur_title, cur_text = pt, tx
+            cur_image_prompt = row[3] if len(row) > 3 else ""
+            break
+
+    if not target_idx:
+        return False
+
+    new_title = cur_title if title is None else title
+    new_text = cur_text if text is None else text
+    new_ip = cur_image_prompt if image_prompt is None else image_prompt
+
+    # Обновим объединённую ячейку поста и image_prompt
+    ws.update_cell(target_idx, 3, _pack_post_cell(new_title, new_text))  # col 3 = "post"
+    ws.update_cell(target_idx, 4, new_ip)  # col 4 = "image_prompt"
+    return True
+
+# -------------------- Удаление --------------------
 def delete_post(post_id: str) -> bool:
     gc = _client()
     ws = _open_sheet(gc)
     all_values = ws.get_all_values()
     for idx, row in enumerate(all_values[1:], start=2):
-        if len(row) == 0:
+        if not row:
             continue
         if row[0] == post_id:
             ws.delete_rows(idx)
-            print(f"Пост с id {post_id} удалён.")
             return True
-    print(f"Пост с id {post_id} не найден для удаления.")
     return False
