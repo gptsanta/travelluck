@@ -1,49 +1,68 @@
-# Telegram Travel Bot — Variant B (Python + Make + Google Sheets)
+# Telegram Travel Bot — Дипломный проект  
 
-This is a minimal working scaffold for your diploma project:
-- Python bot generates **text** and an **image prompt**, saves a row in **Google Sheets**.
-- **Make** (no-code) runs on a schedule, reads the next `draft` row, optionally generates an image (or uses `image_url` if already filled), and posts to **Telegram**.
+Этот репозиторий содержит исходный код Telegram-бота для генерации тревел-постов.  
+Бот умеет создавать текстовые заметки о путешествиях и изображения к ним с помощью нейросетей, сохранять результат в таблицу Google Sheets, а публикация постов в Telegram-канал выполняется автоматически по расписанию с помощью планировщика **Make**.
 
-## Structure
-```
-telegram_travel_bot_B/
-  app/
-    bot.py
-    generate.py
-    sheets.py
-    config.py
-    __init__.py
-  .env.example
-  requirements.txt
-  README.md
-```
+## Основные возможности  
 
-## Quick start
-1) Create a Google Cloud **Service Account** and download its JSON key.
-   - Enable **Google Sheets API**.
-   - Share the target spreadsheet with the service account email.
-2) Create a spreadsheet and take its **Spreadsheet ID** (from the URL).
-3) Copy `.env.example` to `.env` and fill values.
-4) Install deps:
-```bash
-python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-```
-5) Start the bot:
-```bash
-python -m app.bot
-```
-6) In Telegram, send to your bot:
-```
-/newpost Париж, весна и прогулка по набережным
-```
-The bot will create a `posts` sheet (if missing) and append a row with the draft text & image prompt.
+- Генерация **заголовка** и **текста поста** (до 1000 символов).  
+- Создание **изображения** по сгенерированному промпту.  
+- Сохранение черновика поста в Google Sheets (id, статус, текст, промпт, file_id изображения и др.).  
+- Работа с записями:  
+  - `/newpost <тема>` — создать новый пост;  
+  - `/list` — посмотреть список последних постов;  
+  - `/list <id>` — просмотреть конкретный пост;  
+  - `/edit <id>` — отредактировать заголовок, текст или промпт;  
+  - `/delete <id>` — удалить запись.  
+- Поддержка хранения ID картинки в Telegram (без лишнего префикса), что упрощает дальнейшую работу в Make.  
+- Возможность плановой публикации в Telegram-канал через **Make**.  
 
-## Make scenario (outline)
-- **Trigger**: Scheduler (e.g., 10:00 and 18:00 Europe/Paris).
-- **Step 1**: Google Sheets → Search rows where `status == draft`, sorted by `created_at` asc → take first.
-- **Step 2 (optional)**: OpenAI Images → generate image by `image_prompt` → write `image_url` back to the row.
-- **Step 3**: Telegram → send `text` + `image_url` to your channel/group.
-- **Step 4**: Update `status = posted`, set `posted_at` and store `message_id`.
-```
+## Особенности  
+
+- Бот не публикует посты сам — он только готовит и сохраняет черновики.  
+- Для планирования и публикации используется **Make**:  
+  - По расписанию (например, 10:00 и 18:00 по Europe/Paris) сценарий забирает следующую запись со статусом `draft`.  
+  - Отправляет текст и картинку в Telegram-канал.  
+  - Обновляет статус поста в таблице на `posted` и сохраняет время публикации.  
+- Код написан на **Python 3.10+**, с использованием `python-telegram-bot`, `google-api-python-client`, `httpx` и других библиотек.  
+
+## Структура проекта  
+telegram_travel_bot/
+app/
+bot.py # основной код Telegram-бота
+generate.py # генерация текста и изображения
+sheets.py # работа с Google Sheets
+config.py # конфигурация и переменные окружения
+init.py
+.env.example # пример файла конфигурации
+requirements.txt # зависимости
+README.md # описание проекта
+
+
+## Быстрый старт  
+
+1. Создайте Google Cloud **Service Account** и скачайте JSON-ключ.  
+   - Включите **Google Sheets API**.  
+   - Поделитесь таблицей с e-mail сервисного аккаунта.  
+2. Создайте таблицу Google Sheets и возьмите её **Spreadsheet ID** (из URL).  
+3. Скопируйте `.env.example` в `.env` и заполните переменные.  
+4. Установите зависимости:  
+   ```bash
+   python -m venv .venv && source .venv/bin/activate
+   pip install -r requirements.txt
+5. Запустите бота:
+   ```bash
+   python -m app.bot
+
+В Telegram введите:
+  /newpost Париж весной
+
+Бот сгенерирует текст, создаст картинку и сохранит черновик в таблицу.
+
+Make-сценарий
+
+Триггер: расписание (например, 10:00 и 18:00).
+Шаг 1: найти первую запись в Google Sheets со статусом draft.
+Шаг 2: отправить в Telegram канал текст и картинку (по image_url, который совпадает с file_id Telegram).
+Шаг 3: обновить запись — статус posted, заполнить posted_at, сохранить message_id.
 
