@@ -26,7 +26,9 @@
   - Обновляет статус поста в таблице на `posted` и сохраняет время публикации.  
 - Код написан на **Python 3.10+**, с использованием `python-telegram-bot`, `google-api-python-client`, `httpx` и других библиотек.  
 
-## Структура проекта  
+## Структура проекта
+
+```text
 telegram_travel_bot/
 ├── app/
 │   ├── __init__.py
@@ -37,7 +39,7 @@ telegram_travel_bot/
 ├── .env.example       # пример файла конфигурации
 ├── requirements.txt   # зависимости проекта
 └── README.md          # описание проекта
-
+```
 
 ## Быстрый старт  
 
